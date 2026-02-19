@@ -21,14 +21,19 @@ The original `ccswitch.sh` is a Bash script that manages multiple Claude Code ac
 
 ```
 ccflip              # No args → interactive account picker + switch
-ccflip list         # List accounts, highlight active
+ccflip <alias>      # Switch to account by alias (e.g. ccflip work)
+ccflip list         # List accounts, highlight active, show aliases
 ccflip add          # Register the currently logged-in account
+ccflip add --alias work   # Register and assign alias in one step
 ccflip remove       # Interactive picker to remove (or: ccflip remove 2)
 ccflip next         # Rotate to next account in sequence
 ccflip status       # Print current account email (for shell prompt integration)
+ccflip alias <name> <account>  # Assign alias to existing account (by email or number)
 ```
 
 `ccflip` with no arguments is the primary interaction: pick an account from an interactive list, switch to it. One command for the most common operation.
+
+If the first argument matches a known alias, it acts as a shortcut to switch directly. For example, `ccflip work` switches to whichever account has the alias "work". If the argument doesn't match any alias or known subcommand, it prints an error.
 
 ## Project Structure
 
@@ -73,6 +78,22 @@ Example interaction:
 ❯ 1: hi.lucienlee@gmail.com
   2: lucien@aibor.io (active)
 ```
+
+## Account Aliases
+
+Aliases are optional short names for accounts. They make switching fast: `ccflip work` instead of `ccflip` → arrow keys → Enter.
+
+Setting aliases:
+- `ccflip add --alias work` — set alias when adding an account
+- `ccflip alias work lucien@aibor.io` — set alias on an existing account (by email)
+- `ccflip alias work 2` — set alias on an existing account (by number)
+
+Using aliases:
+- `ccflip work` — switch to the account aliased as "work"
+- `ccflip list` output includes aliases: `2: lucien@aibor.io [work] (active)`
+- Interactive picker shows aliases: `2: lucien@aibor.io [work]`
+
+Storage: aliases are stored in the `alias` field of each account entry in `sequence.json`. Aliases must be unique across all accounts and cannot collide with subcommand names (list, add, remove, next, status, alias).
 
 ## Shell Prompt Integration
 
