@@ -1,6 +1,19 @@
 # ccflip
 
-Multi-account switcher for Claude Code. Switch between Claude Code accounts with a single command.
+Multi-account switcher for Claude Code.
+
+ccflip swaps authentication credentials between Claude Code accounts. Your skills, settings, themes, `CLAUDE.md`, MCP servers, keybindings, and all other configuration stay exactly the same. One shared environment, multiple accounts.
+
+Say you have a personal Claude Max account and a work account with API access. ccflip lets you flip between them while keeping your carefully set up Claude Code config intact.
+
+## Platform Support
+
+| Platform | Credential Storage |
+|---|---|
+| macOS | System Keychain |
+| Linux | File-based (owner-only access) |
+| WSL | Same as Linux |
+| Windows | Not yet supported |
 
 ## Install
 
@@ -10,7 +23,7 @@ Requires [Bun](https://bun.sh/):
 curl -fsSL https://bun.sh/install | bash
 ```
 
-Then install ccflip:
+Then:
 
 ```bash
 bun install -g ccflip
@@ -36,7 +49,7 @@ ccflip personal
 ccflip next
 ```
 
-After switching, restart Claude Code to use the new authentication.
+After switching, restart Claude Code to pick up the new authentication.
 
 ## Commands
 
@@ -54,16 +67,18 @@ After switching, restart Claude Code to use the new authentication.
 
 ## Shell Prompt Integration
 
-Show current account in your prompt:
+Show the current account in your prompt:
 
 ```bash
 # .zshrc
 PROMPT='$(ccflip status) > '
 ```
 
-## Data Storage
+Account data lives in `~/.claude-switch-backup/`.
 
-Account data is stored in `~/.claude-switch-backup/`. Compatible with the original bash version (cc-account-switcher).
+## Credits
+
+Inspired by [cc-account-switcher](https://github.com/ming86/cc-account-switcher).
 
 ## License
 
