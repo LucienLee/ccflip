@@ -90,12 +90,15 @@ export async function pickAccount(
   message: string = "Switch to account:",
   promptSelect: SelectPrompt = select
 ): Promise<string> {
-  const choices = seq.sequence.map((num) => {
+  const choices = seq.sequence.map((num, index) => {
     const numStr = String(num);
     const account = seq.accounts[numStr];
+    if (!account) {
+      throw new Error(`Corrupt sequence data: missing account entry for id ${numStr}`);
+    }
     const isActive = num === seq.activeAccountNumber;
     return {
-      name: formatAccount(numStr, account.email, account.alias, isActive),
+      name: formatAccount(String(index + 1), account.email, account.alias, isActive),
       value: numStr,
     };
   });

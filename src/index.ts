@@ -19,6 +19,8 @@ import {
   removeAccountFromSequence,
   getNextInSequence,
   resolveAccountIdentifier,
+  resolveAliasTargetAccount,
+  getDisplayAccountLabel,
   accountExists,
   setAlias,
   findAccountByAlias,
@@ -72,7 +74,8 @@ export async function performSwitch(
   if (String(seq.activeAccountNumber) === targetAccount) {
     const account = seq.accounts[targetAccount];
     const aliasStr = account.alias ? ` [${account.alias}]` : "";
-    console.log(`Already using Account-${targetAccount} (${account.email})${aliasStr}`);
+    const displayLabel = getDisplayAccountLabel(seq, targetAccount);
+    console.log(`Already using ${displayLabel} (${account.email})${aliasStr}`);
     return;
   }
 
@@ -108,7 +111,9 @@ export async function performSwitch(
   const targetConfig = readAccountConfig(targetAccount, targetEmail, CONFIGS_DIR);
 
   if (!targetCreds || !targetConfig) {
-    throw new Error(`Missing backup data for Account-${targetAccount}`);
+    throw new Error(
+      `Missing backup data for ${getDisplayAccountLabel(seq, targetAccount)}`
+    );
   }
 
   // Step 3: Write target credentials
@@ -136,7 +141,8 @@ export async function performSwitch(
 
   const alias = seq.accounts[targetAccount].alias;
   const aliasStr = alias ? ` [${alias}]` : "";
-  console.log(`Switched to Account-${targetAccount} (${targetEmail})${aliasStr}`);
+  const displayLabel = getDisplayAccountLabel(seq, targetAccount);
+  console.log(`Switched to ${displayLabel} (${targetEmail})${aliasStr}`);
   console.log("\nPlease restart Claude Code to use the new authentication.\n");
 }
 
@@ -152,15 +158,18 @@ async function cmdList(): Promise<void> {
   const currentEmail = getCurrentAccount();
 
   console.log("Accounts:");
-  for (const num of seq.sequence) {
+  seq.sequence.forEach((num, index) => {
     const numStr = String(num);
     const account = seq.accounts[numStr];
+    if (!account) {
+      throw new Error(`Corrupt sequence data: missing account entry for id ${numStr}`);
+    }
     const isActive = account.email === currentEmail;
-    let line = `  ${numStr}: ${account.email}`;
+    let line = `  ${index + 1}: ${account.email}`;
     if (account.alias) line += ` [${account.alias}]`;
     if (isActive) line += " (active)";
     console.log(line);
-  }
+  });
 }
 
 async function cmdAdd(alias?: string): Promise<void> {
@@ -169,13 +178,11 @@ async function cmdAdd(alias?: string): Promise<void> {
 
   const currentEmail = getCurrentAccount();
   if (currentEmail === "none") {
-    console.error("Error: No active Claude account found. Please log in first.");
-    process.exit(1);
+    throw new Error("No active Claude account found. Please log in first.");
   }
 
   if (!sanitizeEmailForFilename(currentEmail)) {
-    console.error("Error: Current account email is not safe for storage");
-    process.exit(1);
+    throw new Error("Current account email is not safe for storage");
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
@@ -189,20 +196,17 @@ async function cmdAdd(alias?: string): Promise<void> {
   if (alias) {
     const result = validateAlias(alias);
     if (!result.valid) {
-      console.error(`Error: ${result.reason}`);
-      process.exit(1);
+      throw new Error(result.reason);
     }
     if (findAccountByAlias(seq, alias)) {
-      console.error(`Error: Alias "${alias}" is already in use`);
-      process.exit(1);
+      throw new Error(`Alias "${alias}" is already in use`);
     }
   }
 
   // Read current credentials and config
   const creds = await readCredentials();
   if (!creds) {
-    console.error("Error: No credentials found for current account");
-    process.exit(1);
+    throw new Error("No credentials found for current account");
   }
 
   const configPath = getClaudeConfigPath();
@@ -218,6 +222,7 @@ async function cmdAdd(alias?: string): Promise<void> {
   });
 
   const accountNum = String(updated.activeAccountNumber);
+  const displayLabel = getDisplayAccountLabel(updated, accountNum);
 
   // Store backups
   await writeAccountCredentials(accountNum, currentEmail, creds);
@@ -225,13 +230,12 @@ async function cmdAdd(alias?: string): Promise<void> {
   await writeJsonAtomic(SEQUENCE_FILE, updated);
 
   const aliasStr = alias ? ` [${alias}]` : "";
-  console.log(`Added Account ${accountNum}: ${currentEmail}${aliasStr}`);
+  console.log(`Added ${displayLabel}: ${currentEmail}${aliasStr}`);
 }
 
 async function cmdRemove(identifier?: string): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.error("Error: No accounts managed yet");
-    process.exit(1);
+    throw new Error("No accounts managed yet");
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
@@ -241,26 +245,29 @@ async function cmdRemove(identifier?: string): Promise<void> {
   if (!identifier) {
     accountNum = await pickAccountForRemoval(seq);
   } else {
+    if (/^\d+$/.test(identifier)) {
+      throw new Error("Remove target must be an email, not a number");
+    }
     const resolved = resolveAccountIdentifier(seq, identifier);
     if (!resolved) {
-      console.error(`Error: Account not found: ${identifier}`);
-      process.exit(1);
+      throw new Error(`Account not found: ${identifier}`);
     }
     accountNum = resolved;
   }
 
   const account = seq.accounts[accountNum];
   if (!account) {
-    console.error(`Error: Account-${accountNum} does not exist`);
-    process.exit(1);
+    throw new Error(`${getDisplayAccountLabel(seq, accountNum)} does not exist`);
   }
 
   if (seq.activeAccountNumber === Number(accountNum)) {
-    console.log(`Warning: Account-${accountNum} (${account.email}) is currently active`);
+    console.log(
+      `Warning: ${getDisplayAccountLabel(seq, accountNum)} (${account.email}) is currently active`
+    );
   }
 
   const confirmed = await confirmAction(
-    `Permanently remove Account-${accountNum} (${account.email})?`
+    `Permanently remove ${getDisplayAccountLabel(seq, accountNum)} (${account.email})?`
   );
   if (!confirmed) {
     console.log("Cancelled");
@@ -275,20 +282,20 @@ async function cmdRemove(identifier?: string): Promise<void> {
   const updated = removeAccountFromSequence(seq, accountNum);
   await writeJsonAtomic(SEQUENCE_FILE, updated);
 
-  console.log(`Account-${accountNum} (${account.email}) has been removed`);
+  console.log(
+    `${getDisplayAccountLabel(seq, accountNum)} (${account.email}) has been removed`
+  );
 }
 
 async function cmdNext(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.error("Error: No accounts managed yet");
-    process.exit(1);
+    throw new Error("No accounts managed yet");
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
 
   if (seq.sequence.length < 2) {
-    console.error("Error: Need at least 2 accounts to rotate");
-    process.exit(1);
+    throw new Error("Need at least 2 accounts to rotate");
   }
 
   const nextNum = getNextInSequence(seq);
@@ -314,44 +321,50 @@ async function cmdStatus(): Promise<void> {
   }
 }
 
-async function cmdAlias(alias: string, identifier: string): Promise<void> {
+async function cmdAlias(alias: string, identifier?: string): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.error("Error: No accounts managed yet");
-    process.exit(1);
+    throw new Error("No accounts managed yet");
   }
 
   const result = validateAlias(alias);
   if (!result.valid) {
-    console.error(`Error: ${result.reason}`);
-    process.exit(1);
+    throw new Error(result.reason);
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
-
-  const accountNum = resolveAccountIdentifier(seq, identifier);
+  if (identifier && /^\d+$/.test(identifier)) {
+    throw new Error("Alias target must be an email, not a number");
+  }
+  const currentEmail = getCurrentAccount();
+  const accountNum = resolveAliasTargetAccount(seq, { identifier, currentEmail });
   if (!accountNum) {
-    console.error(`Error: Account not found: ${identifier}`);
-    process.exit(1);
+    if (identifier) {
+      throw new Error(`Account not found: ${identifier}`);
+    } else if (currentEmail === "none") {
+      throw new Error("No active Claude account found. Please log in first.");
+    } else {
+      throw new Error(`Current account is not managed: ${currentEmail}`);
+    }
   }
 
   const updated = setAlias(seq, accountNum, alias);
   await writeJsonAtomic(SEQUENCE_FILE, updated);
 
   const account = updated.accounts[accountNum];
-  console.log(`Alias "${alias}" set for Account-${accountNum} (${account.email})`);
+  console.log(
+    `Alias "${alias}" set for ${getDisplayAccountLabel(updated, accountNum)} (${account.email})`
+  );
 }
 
 async function cmdInteractiveSwitch(): Promise<void> {
   if (!existsSync(SEQUENCE_FILE)) {
-    console.error("Error: No accounts managed yet. Run: ccflip add");
-    process.exit(1);
+    throw new Error("No accounts managed yet. Run: ccflip add");
   }
 
   const seq = await loadSequence(SEQUENCE_FILE);
 
   if (seq.sequence.length === 0) {
-    console.error("Error: No accounts managed yet. Run: ccflip add");
-    process.exit(1);
+    throw new Error("No accounts managed yet. Run: ccflip add");
   }
 
   const targetAccount = await pickAccount(seq, `ccflip v${pkg.version} — Switch to account:`);
@@ -368,17 +381,18 @@ Commands:
   <alias>                     Switch to account by alias
   list                        List all managed accounts
   add [--alias <name>]        Add current account
-  remove [<num|email>]        Remove an account
+  remove [<email>]            Remove an account
   next                        Rotate to next account
   status                      Show current account
-  alias <name> <num|email>    Set alias for an account
+  alias <name> [<email>]      Set alias for current or target account
   help                        Show this help
 
 Examples:
   ccflip                      Pick account interactively
   ccflip work                 Switch to "work" alias
   ccflip add --alias personal Add current account with alias
-  ccflip alias work 2         Set alias "work" for account 2`);
+  ccflip alias work           Set alias "work" for current account
+  ccflip alias work user@company.com  Set alias "work" for target email`);
 }
 
 // --- Main ---
@@ -386,15 +400,27 @@ Examples:
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
+  let lockHeld = false;
+
+  const runWithLock = async (fn: () => Promise<void>): Promise<void> => {
+    setupDirectories();
+    acquireLock(LOCK_DIR);
+    lockHeld = true;
+    try {
+      await fn();
+    } finally {
+      if (lockHeld) {
+        releaseLock(LOCK_DIR);
+        lockHeld = false;
+      }
+    }
+  };
 
   // No args: interactive picker
   if (!command) {
-    acquireLock(LOCK_DIR);
-    try {
+    await runWithLock(async () => {
       await cmdInteractiveSwitch();
-    } finally {
-      releaseLock(LOCK_DIR);
-    }
+    });
     return;
   }
 
@@ -404,8 +430,7 @@ async function main(): Promise<void> {
       break;
 
     case "add": {
-      acquireLock(LOCK_DIR);
-      try {
+      await runWithLock(async () => {
         // Parse --alias flag
         let alias: string | undefined;
         const aliasIdx = args.indexOf("--alias");
@@ -413,29 +438,21 @@ async function main(): Promise<void> {
           alias = args[aliasIdx + 1];
         }
         await cmdAdd(alias);
-      } finally {
-        releaseLock(LOCK_DIR);
-      }
+      });
       break;
     }
 
     case "remove": {
-      acquireLock(LOCK_DIR);
-      try {
+      await runWithLock(async () => {
         await cmdRemove(args[1]);
-      } finally {
-        releaseLock(LOCK_DIR);
-      }
+      });
       break;
     }
 
     case "next": {
-      acquireLock(LOCK_DIR);
-      try {
+      await runWithLock(async () => {
         await cmdNext();
-      } finally {
-        releaseLock(LOCK_DIR);
-      }
+      });
       break;
     }
 
@@ -444,16 +461,13 @@ async function main(): Promise<void> {
       break;
 
     case "alias": {
-      if (!args[1] || !args[2]) {
-        console.error("Usage: ccflip alias <name> <account_number|email>");
+      if (!args[1]) {
+        console.error("Usage: ccflip alias <name> [<email>]");
         process.exit(1);
       }
-      acquireLock(LOCK_DIR);
-      try {
+      await runWithLock(async () => {
         await cmdAlias(args[1], args[2]);
-      } finally {
-        releaseLock(LOCK_DIR);
-      }
+      });
       break;
     }
 
@@ -469,12 +483,9 @@ async function main(): Promise<void> {
         const seq = await loadSequence(SEQUENCE_FILE);
         const accountNum = findAccountByAlias(seq, command);
         if (accountNum) {
-          acquireLock(LOCK_DIR);
-          try {
+          await runWithLock(async () => {
             await performSwitch(seq, accountNum);
-          } finally {
-            releaseLock(LOCK_DIR);
-          }
+          });
           return;
         }
       }
@@ -490,12 +501,9 @@ if (import.meta.main) {
   main().catch((err) => {
     if (err instanceof PromptCancelledError) {
       console.log("Cancelled");
-      releaseLock(LOCK_DIR);
       process.exit(0);
     }
     console.error(`Error: ${err.message}`);
-    // Clean up lock on crash
-    releaseLock(LOCK_DIR);
     process.exit(1);
   });
 }

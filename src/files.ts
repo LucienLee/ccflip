@@ -37,23 +37,33 @@ export async function writeJsonAtomic(
 
 // Acquire a cross-platform directory-based lock.
 export function acquireLock(lockDir: string): void {
+  const parentDir = dirname(lockDir);
+  if (!existsSync(parentDir)) {
+    mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+  }
   try {
     mkdirSync(lockDir, { recursive: false, mode: 0o700 });
     writeLockOwner(lockDir);
     return;
   } catch (err: unknown) {
-    const isLockHeld =
-      err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "EEXIST";
-    if (isLockHeld && isStaleLock(lockDir)) {
-      rmSync(lockDir, { recursive: true, force: true });
-      mkdirSync(lockDir, { recursive: false, mode: 0o700 });
-      writeLockOwner(lockDir);
-      return;
+    const code =
+      err instanceof Error && "code" in err ? (err as NodeJS.ErrnoException).code : undefined;
+    if (code === "EEXIST") {
+      if (isStaleLock(lockDir)) {
+        rmSync(lockDir, { recursive: true, force: true });
+        mkdirSync(lockDir, { recursive: false, mode: 0o700 });
+        writeLockOwner(lockDir);
+        return;
+      }
+      throw new Error(
+        `Another instance is running. If this is wrong, remove ${lockDir}`
+      );
     }
+    if (err instanceof Error) {
+      throw new Error(`Failed to acquire lock at ${lockDir}: ${err.message}`);
+    }
+    throw new Error(`Failed to acquire lock at ${lockDir}`);
   }
-  throw new Error(
-    `Another instance is running. If this is wrong, remove ${lockDir}`
-  );
 }
 
 // Release directory-based lock.

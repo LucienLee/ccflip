@@ -71,3 +71,51 @@ describe("interactive cancellation", () => {
     );
   });
 });
+
+describe("interactive display labels", () => {
+  test("pickAccount shows UI sequence numbers, not internal ids", async () => {
+    const seq: SequenceData = {
+      activeAccountNumber: 3,
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      sequence: [2, 3],
+      accounts: {
+        "2": { email: "work@test.com", uuid: "bbb", added: "2026-01-01T00:00:00.000Z" },
+        "3": { email: "personal@test.com", uuid: "ccc", added: "2026-01-01T00:00:00.000Z" },
+      },
+    };
+
+    const fakeSelect = async (args: {
+      message: string;
+      choices: Array<{ name: string; value: string }>;
+      theme?: unknown;
+    }) => {
+      expect(args.choices[0].name).toContain("1: work@test.com");
+      expect(args.choices[1].name).toContain("2: personal@test.com");
+      expect(args.choices[1].name).toContain("(active)");
+      return args.choices[0].value;
+    };
+
+    await expect(pickAccount(seq, "Switch to account:", fakeSelect)).resolves.toBe("2");
+  });
+
+  test("pickAccount throws clear error for inconsistent sequence data", async () => {
+    const brokenSeq: SequenceData = {
+      activeAccountNumber: 9,
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      sequence: [9],
+      accounts: {},
+    };
+
+    const fakeSelect = async (_args: {
+      message: string;
+      choices: Array<{ name: string; value: string }>;
+      theme?: unknown;
+    }) => {
+      return "9";
+    };
+
+    await expect(pickAccount(brokenSeq, "Switch to account:", fakeSelect)).rejects.toThrow(
+      /Corrupt sequence data/i
+    );
+  });
+});

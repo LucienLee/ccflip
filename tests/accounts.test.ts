@@ -10,6 +10,8 @@ import {
   removeAccountFromSequence,
   getNextInSequence,
   resolveAccountIdentifier,
+  resolveAliasTargetAccount,
+  getDisplayAccountLabel,
   setAlias,
   findAccountByAlias,
 } from "../src/accounts";
@@ -122,6 +124,27 @@ describe("removeAccountFromSequence", () => {
     expect(updated.sequence).not.toContain(1);
     expect(updated.accounts["2"]).toBeDefined();
   });
+
+  test("clears activeAccountNumber when removing last account", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq.activeAccountNumber = 1;
+    const updated = removeAccountFromSequence(seq, "1");
+    expect(updated.sequence).toEqual([]);
+    expect(updated.activeAccountNumber).toBeNull();
+  });
+
+  test("repoints activeAccountNumber when removing active account", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq.activeAccountNumber = 1;
+    const updated = removeAccountFromSequence(seq, "1");
+    expect(updated.sequence).toEqual([2]);
+    expect(updated.activeAccountNumber).toBe(2);
+  });
 });
 
 describe("getNextInSequence", () => {
@@ -164,6 +187,86 @@ describe("resolveAccountIdentifier", () => {
     const seq = await loadSequence(TEST_SEQUENCE);
     expect(resolveAccountIdentifier(seq, "nope@x.com")).toBeNull();
   });
+
+  test("resolves UI sequence number when internal ids are sparse", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq = removeAccountFromSequence(seq, "1");
+    expect(resolveAccountIdentifier(seq, "1")).toBe("2");
+  });
+});
+
+describe("resolveAliasTargetAccount", () => {
+  test("resolves explicit email identifier first", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    expect(
+      resolveAliasTargetAccount(seq, {
+        identifier: "c@d.com",
+        currentEmail: "a@b.com",
+      })
+    ).toBe("2");
+  });
+
+  test("returns null for numeric identifier", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    expect(
+      resolveAliasTargetAccount(seq, {
+        identifier: "1",
+        currentEmail: "a@b.com",
+      })
+    ).toBeNull();
+  });
+
+  test("uses current email when identifier is missing", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    expect(
+      resolveAliasTargetAccount(seq, {
+        currentEmail: "a@b.com",
+      })
+    ).toBe("1");
+  });
+
+  test('returns null when identifier is missing and current email is "none"', async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    const seq = await loadSequence(TEST_SEQUENCE);
+    expect(
+      resolveAliasTargetAccount(seq, {
+        currentEmail: "none",
+      })
+    ).toBeNull();
+  });
+
+  test("returns null when current email is unmanaged", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    expect(
+      resolveAliasTargetAccount(seq, {
+        currentEmail: "x@y.com",
+      })
+    ).toBeNull();
+  });
+});
+
+describe("getDisplayAccountLabel", () => {
+  test("uses UI order instead of internal account id", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq = removeAccountFromSequence(seq, "1");
+
+    expect(getDisplayAccountLabel(seq, "2")).toBe("Account-1");
+  });
 });
 
 describe("alias operations", () => {
@@ -182,6 +285,17 @@ describe("alias operations", () => {
     seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
     seq = setAlias(seq, "1", "work");
     expect(() => setAlias(seq, "2", "work")).toThrow(/already in use/i);
+  });
+
+  test("setAlias duplicate error uses UI account label", async () => {
+    await initSequenceFile(TEST_SEQUENCE);
+    let seq = await loadSequence(TEST_SEQUENCE);
+    seq = addAccountToSequence(seq, { email: "a@b.com", uuid: "1" });
+    seq = addAccountToSequence(seq, { email: "c@d.com", uuid: "2" });
+    seq = removeAccountFromSequence(seq, "1");
+    seq = setAlias(seq, "2", "work");
+    seq = addAccountToSequence(seq, { email: "e@f.com", uuid: "3" });
+    expect(() => setAlias(seq, "3", "work")).toThrow(/Account-1/);
   });
 
   test("findAccountByAlias returns account number", async () => {

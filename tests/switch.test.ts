@@ -78,4 +78,25 @@ describe("performSwitch", () => {
 
     logSpy.mockRestore();
   });
+
+  test("uses UI account label when internal ids are sparse", async () => {
+    const { performSwitch } = await import("../src/index");
+
+    const seq: SequenceData = {
+      activeAccountNumber: 3,
+      lastUpdated: "2026-01-01T00:00:00.000Z",
+      sequence: [2, 3],
+      accounts: {
+        "2": { email: "a@test.com", uuid: "aaa", added: "2026-01-01T00:00:00.000Z" },
+        "3": { email: "b@test.com", uuid: "bbb", added: "2026-01-01T00:00:00.000Z" },
+      },
+    };
+
+    const logSpy = spyOn(console, "log");
+    await performSwitch(seq, "3");
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Already using Account-2")
+    );
+    logSpy.mockRestore();
+  });
 });

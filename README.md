@@ -59,11 +59,23 @@ After switching, restart Claude Code to pick up the new authentication.
 | `ccflip <alias>` | Switch by alias |
 | `ccflip list` | List managed accounts |
 | `ccflip add [--alias name]` | Add current account |
-| `ccflip remove [num\|email]` | Remove an account |
+| `ccflip remove [email]` | Remove an account |
 | `ccflip next` | Rotate to next account |
 | `ccflip status` | Show current account |
-| `ccflip alias <name> <num\|email>` | Set alias for account |
+| `ccflip alias <name> [email]` | Set alias for current account, or for target account email |
 | `ccflip help` | Show help |
+
+### Alias Usage
+
+```bash
+# Set alias for current active account
+ccflip alias work
+
+# Set alias for a specific managed account
+ccflip alias work hi.lucienlee@gmail.com
+```
+
+`remove` target accepts email only. Omit it to choose from the interactive picker.
 
 ## Shell Prompt Integration
 
