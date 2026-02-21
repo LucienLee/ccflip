@@ -64,4 +64,14 @@ describe("acquireLock / releaseLock", () => {
     expect(() => acquireLock(lockDir)).toThrow(/another instance/i);
     releaseLock(lockDir);
   });
+
+  test("recovers stale lock with non-existent PID", () => {
+    const lockDir = join(TEST_DIR, ".lock");
+    mkdirSync(lockDir, { recursive: true });
+    Bun.write(join(lockDir, "owner.json"), JSON.stringify({ pid: 99999999 }));
+
+    expect(() => acquireLock(lockDir)).not.toThrow();
+    expect(existsSync(lockDir)).toBe(true);
+    releaseLock(lockDir);
+  });
 });

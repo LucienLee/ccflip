@@ -36,7 +36,13 @@ import {
 } from "./credentials";
 import { writeJsonAtomic, acquireLock, releaseLock } from "./files";
 import { sanitizeEmailForFilename, validateAlias } from "./validation";
-import { pickAccount, pickAccountForRemoval, confirmAction } from "./interactive";
+import pkg from "../package.json";
+import {
+  pickAccount,
+  pickAccountForRemoval,
+  confirmAction,
+  PromptCancelledError,
+} from "./interactive";
 
 // Ensure backup directories exist.
 function setupDirectories(): void {
@@ -348,7 +354,7 @@ async function cmdInteractiveSwitch(): Promise<void> {
     process.exit(1);
   }
 
-  const targetAccount = await pickAccount(seq);
+  const targetAccount = await pickAccount(seq, `ccflip v${pkg.version} — Switch to account:`);
   await performSwitch(seq, targetAccount);
 }
 
@@ -482,6 +488,11 @@ async function main(): Promise<void> {
 
 if (import.meta.main) {
   main().catch((err) => {
+    if (err instanceof PromptCancelledError) {
+      console.log("Cancelled");
+      releaseLock(LOCK_DIR);
+      process.exit(0);
+    }
     console.error(`Error: ${err.message}`);
     // Clean up lock on crash
     releaseLock(LOCK_DIR);

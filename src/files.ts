@@ -1,8 +1,8 @@
 // ABOUTME: Atomic JSON file writing and directory-based file locking.
 // ABOUTME: Prevents data corruption by writing to temp files and renaming into place.
 
-import { existsSync, mkdirSync, rmSync, chmodSync, renameSync, writeFileSync } from "fs";
-import { dirname } from "path";
+import { existsSync, mkdirSync, rmSync, chmodSync, renameSync, writeFileSync, readFileSync } from "fs";
+import { dirname, join } from "path";
 import { randomBytes } from "crypto";
 
 // Write JSON atomically: write to temp file, validate, then rename into place.
@@ -38,12 +38,22 @@ export async function writeJsonAtomic(
 // Acquire a cross-platform directory-based lock.
 export function acquireLock(lockDir: string): void {
   try {
-    mkdirSync(lockDir, { recursive: false });
-  } catch {
-    throw new Error(
-      `Another instance is running. If this is wrong, remove ${lockDir}`
-    );
+    mkdirSync(lockDir, { recursive: false, mode: 0o700 });
+    writeLockOwner(lockDir);
+    return;
+  } catch (err: unknown) {
+    const isLockHeld =
+      err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "EEXIST";
+    if (isLockHeld && isStaleLock(lockDir)) {
+      rmSync(lockDir, { recursive: true, force: true });
+      mkdirSync(lockDir, { recursive: false, mode: 0o700 });
+      writeLockOwner(lockDir);
+      return;
+    }
   }
+  throw new Error(
+    `Another instance is running. If this is wrong, remove ${lockDir}`
+  );
 }
 
 // Release directory-based lock.
@@ -51,4 +61,49 @@ export function releaseLock(lockDir: string): void {
   try {
     rmSync(lockDir, { recursive: true, force: true });
   } catch {}
+}
+
+function getLockOwnerPath(lockDir: string): string {
+  return join(lockDir, "owner.json");
+}
+
+function writeLockOwner(lockDir: string): void {
+  const ownerPath = getLockOwnerPath(lockDir);
+  const owner = {
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  };
+  writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600 });
+  chmodSync(lockDir, 0o700);
+}
+
+function isStaleLock(lockDir: string): boolean {
+  const ownerPath = getLockOwnerPath(lockDir);
+  if (!existsSync(ownerPath)) {
+    return true;
+  }
+
+  try {
+    const owner = JSON.parse(readFileSync(ownerPath, "utf-8")) as { pid?: number };
+    if (!owner.pid || !Number.isInteger(owner.pid) || owner.pid <= 0) {
+      return true;
+    }
+    return !isProcessAlive(owner.pid);
+  } catch {
+    return true;
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    if (err instanceof Error && "code" in err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === "ESRCH") return false;
+      if (code === "EPERM") return true;
+    }
+    return true;
+  }
 }
